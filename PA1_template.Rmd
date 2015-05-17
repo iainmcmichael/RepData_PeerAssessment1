@@ -1,25 +1,114 @@
 ---
 title: "Reproducible Research: Peer Assessment 1"
 output: 
-  html_document:
-    keep_md: true
+html_document: 
+keep_md: true
 ---
 
-
 ## Loading and preprocessing the data
+We will be using the dplyr and ggplot packages and we therefore check whether these are installed and download if they are not.
 
+```{r, message=FALSE, warning=FALSE, errors=FALSE, results='hide'}
+if ( !"dplyr" %in% installed.packages() )
+    install.packages("dplyr")
 
+if ( !"ggplot2" %in% installed.packages() )
+    install.packages("ggplot2")
+
+library(dplyr)
+library(ggplot2)
+```
+
+We downlaod the required data file from the course site, unzip it and load it into memory.  Note that we include caching code to save us re-downloading this everytime we use the knitR package.
+
+```{r}
+URL <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2Factivity.zip"
+fileName <- "activity.csv"
+
+if (!file.exists(fileName)) {
+    download.file(URL,"temp", "curl")
+    unzip("temp", overwrite=TRUE)
+    unlink("temp")
+}
+data <- read.csv(fileName)
+data <- mutate(data, date=as.Date(date))
+```
 
 ## What is mean total number of steps taken per day?
 
+We start by looking at the number of steps per day and the frequency of the occurences.
 
+```{r}
+total <- group_by(data, date) %>% summarise(total = sum(steps, rm.na=TRUE))
+ggplot(total, aes(total)) + 
+    geom_histogram(binwidth = 1500, col="#1A567F", aes(fill=..count..)) + 
+    xlab("Total") +
+    ylab("Count") + 
+    ggtitle("Frequency of the Number of Steps Per Day") + 
+    scale_fill_gradient("Count", low = "#81CCFE", high = "#2F86B9") +
+    theme(panel.background = element_rect(fill = 'white', colour = 'white'))
+mean <- round(mean(total$total, na.rm=TRUE),1)
+median <- median(total$total, na.rm=TRUE)
+```
+
+The mean value of number of steps per day is `r mean` and median of the number of steps per day is `r median`.
 
 ## What is the average daily activity pattern?
 
+We can now look at the average number of steps in any 5 minute period over the length of the case study.  We might expect that some periods will be less active (e.g. during sleep) and that some periods will be more active.
 
+```{r}
+timeSeries <- group_by(data, interval) %>% summarise(mean = mean(steps, na.rm=TRUE))
+ggplot(timeSeries) + 
+    geom_line(aes(x=interval, y=mean), col="#2F86B9") +
+    xlab("5 Minute Interval") +
+    ylab("Mean") + 
+    ggtitle("Average Number of Steps per 5 Minute Interval") + 
+    theme(panel.background = element_rect(fill = 'white', colour = 'white'))
+timeMean <- summarise(timeSeries, Maximum = max(mean))
+```
+
+The maximum mean number of steps per 5 minute interval is: `r timeMean`.
 
 ## Imputing missing values
 
+```{r}
+countNA <- count(filter(data, is.na(steps)))
+```
 
+The total number of rows with missing data (NA values) is `r countNA`.
+
+We will use a strategy of replacing all NAs with the average value for the 5 minute slot over the whole data set. For example if the average value in the 0 five minute slot is 0, all NAs in this slot will be replaced with 0.  Note that from above we already have the timeSeries set which contains the average (excluding NAs) over the entire set of observations.
+
+```{r}
+replaced <- left_join(data, timeSeries, by = c("interval" = "interval")) %>%
+    mutate(steps = ifelse(is.na(steps), mean, steps))
+totalReplaced <- group_by(replaced, date) %>% summarise(total = sum(steps))
+ggplot(totalReplaced, aes(total)) + 
+    geom_histogram(binwidth = 1500, col="#1A567F", aes(fill=..count..)) + 
+    xlab("Total") +
+    ylab("Count") + 
+    ggtitle("Frequency of the Number of Steps Per Day") + 
+    scale_fill_gradient("Count", low = "#81CCFE", high = "#2F86B9") +
+    theme(panel.background = element_rect(fill = 'white', colour = 'white'))
+meanReplaced <- round(mean(totalReplaced$total),1)
+medianReplaced <- median(totalReplaced$total)
+```
+
+The mean value of number of steps per day is `r meanReplaced` and median of the number of steps per day is `r medianReplaced`.  There is minimal difference between the mean and median of these calculated values vs the previous reported values.  The exact difference in means is mean - meanReplaced =  `r mean - meanReplaced` and the difference in median values is median - medianReplaced = `r median - medianReplaced`.
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+```{r}
+dataWeekday <- mutate(replaced, weekday = ifelse(weekdays(date) %in% c("Saturday", "Sunday"), "weekend", "weekday")) %>% mutate(weekday = as.factor(weekday))
+timeSeriesWeekday <- group_by(dataWeekday, interval, weekday) %>% summarise(mean = mean(steps))
+ggplot(timeSeriesWeekday) + 
+    geom_line(aes(x=interval, y=mean), col="#2F86B9") +
+    xlab("5 Minute Interval") +
+    ylab("Mean") + 
+    facet_wrap(~weekday, nrow=2) +
+    ggtitle("Average Number of Steps per 5 Minute Interval") + 
+    theme(panel.background = element_rect(fill = 'white', colour = 'white'))
+```
+
+As can be seen, the maximum average number of steps per day is lower at the weekend but more sustained throughout the day than during the week.  This is perhaps indicative of an office worker pattern (though by no means conclusive).  The activity starts later in the day on the weekend than during the week.
